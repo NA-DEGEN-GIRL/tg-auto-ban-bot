@@ -1,20 +1,33 @@
 # Telegram 자동 강제퇴장 & 스팸 댓글 방지 봇
 
-텔레그램 그룹/공지방 운영을 위한 자동화 봇입니다.
+텔레그램 그룹/공지방(채널/토론방 등) 운영을 위한 강력한 자동화 봇입니다.
 
 ## 주요 기능
 
-- **자동 강퇴:** 그룹에 새로 들어온 "사람" 멤버를 자동 강퇴(언밴 포함)하여 다시 초대가 가능합니다.
-- **스팸 링크 댓글 강퇴:**  
-  공지방(채널) 또는 포워딩/토론방에서 공지글에 댓글 형태로 http(s) 링크가 포함된 메시지가 올라오면 **메시지를 즉시 삭제**하고, 사용자를 **그룹 및 공지방(chat_id, NOTICE_CHAT_ID 모두)에서 강퇴**합니다.
+- **자동 강퇴:**  
+  그룹에 새로 들어온 "사람" 멤버를 자동으로 강퇴(즉시 언밴하여 재초대 가능).  
+  *봇 계정은 강퇴하지 않습니다.*
+
+- **스팸 링크 댓글 완전 차단 및 추방 로직:**  
+  - 사용자가 **해당 그룹/채널에서 첫 댓글**을 남길 때,
+    - **만약 그 첫 댓글에 http 또는 https로 시작하는 링크가 포함되어 있다면**
+      - 해당 유저는 **그룹(chat_id)과 공지방(NOTICE_CHAT_ID) 모두에서 즉시 강퇴**됩니다.
+      - 해당 메시지는 즉시 삭제됩니다.
+      - (첫댓글인데 링크가 없는 경우에는 환영 인사 메시지가 자동으로 전송됩니다.)
+  - 이미 댓글을 한 번이라도 작성한 뒤에는,
+    - **그 후에 작성하는 모든 댓글에서 http/https 링크 사용은 항상 금지(삭제)**됩니다.
+    - **링크만 삭제**되고, 유저는 강퇴되지 않습니다.
+
 - **첫 댓글 환영 메시지:**  
-  사용자가 해당 그룹에서 처음 댓글을 남길 경우 환영 메시지를 띄워줍니다. (링크 댓글/스팸 제외)
-- **관리자 인증 영속 저장:**  
-  인증 상태를 json 파일에 저장하여, 봇 재시작 시 재인증이 필요 없습니다.
-- **관리자 명령:**  
-  `/auth`(최초 1회), `/stop`, `/restart` 명령어로 봇을 제어할 수 있습니다.
-- **원본/토론 그룹 둘 다 대응:**  
-  공지방, 연결된 그룹 모두에서 동작.
+  링크가 포함되지 않은 첫 댓글이라면,  
+  해당 사용자에게 "첫 댓글 환영" 메시지를 그룹에 자동으로 답글로 띄워줍니다.
+
+- **강력한 확장성:**  
+  공지방(채널) 뿐만 아니라 포워딩으로 연결된 토론방에서도 댓글 판별, 일괄 동작.
+
+- **인증 및 권한 관리:**  
+  관리자는 `/auth`, `/stop`, `/restart` 명령으로만 봇을 제어할 수 있습니다.  
+  인증 상태가 파일로 저장되어, 재시작 때 별도 인증이 필요 없습니다.
 
 ---
 
@@ -22,7 +35,7 @@
 
 - Python 3.8 이상
 - 텔레그램 봇 토큰 ([@BotFather](https://t.me/BotFather)에서 발급)
-- python-telegram-bot 패키지
+- python-telegram-bot 패키지 (pip로 설치)
 
 ### 설치 방법
 
@@ -37,11 +50,11 @@ pip install python-telegram-bot
 1. **저장소 클론 및 폴더 이동**
 
 2. **설정파일 작성**
-    - `copy.config.json`을 `config.json`으로 복사
-    - 값을 입력:
-        - `TOKEN`: [@BotFather](https://t.me/BotFather)에서 받은 봇 토큰
-        - `ADMIN_ID`: 자신의 텔레그램(숫자) 유저 ID
-        - `NOTICE_CHAT_ID`: 관리할 "공지방"의 chat_id (예시: `-1001234567890`)
+    - `copy.config.json`을 복사하여 `config.json`으로 파일명을 변경
+    - 아래 값을 입력
+      - `TOKEN`: [@BotFather](https://t.me/BotFather)에서 받은 봇 토큰
+      - `ADMIN_ID`: 본인(관리자) 텔레그램 유저 ID(숫자)
+      - `NOTICE_CHAT_ID`: 관리할 "공지방/채널"의 chat_id(예시: `-1001234567890`)
 
     ```json
     {
@@ -57,42 +70,69 @@ pip install python-telegram-bot
    ```
 
 4. **최초 인증**
-    - 텔레그램에서 ADMIN_ID 계정으로 `/auth` 명령어를 봇에게 보내 인증을 완료하세요.
-    - 인증 완료 후 재실행 시 추가 인증이 필요 없습니다.
+   - Telegram에서 ADMIN_ID 계정으로 `/auth` 명령을 봇에게 보내 인증을 완료하면, 자동 방어 기능이 개시됩니다.
+   - 인증 이후 재시작 시에는 별도 인증이 필요 없습니다.
 
 ---
 
 ## 명령어
 
-- `/auth` — 관리자 인증 (최초 1회, 관리자만)
-- `/stop` — 봇 일시정지 (관리자만)
-- `/restart` — 봇 재시작 (관리자만)
+- `/auth`: 관리자 인증(최초 1회, 관리자만)
+- `/stop`: 봇 일시 정지(관리자만)
+- `/restart`: 봇 재가동(관리자만)
+
+---
+
+## 사용자 추방/환영 상세 규칙
+
+- **최초 그룹 또는 채널 내 댓글이 http/https 링크를 포함하면**
+    - 해당 사용자는 그룹(chat_id)과 공지방(NOTICE_CHAT_ID) 두 곳 모두에서 강퇴됩니다.
+    - 해당 댓글(메시지)은 즉시 삭제됩니다.
+    - 만약 첫 댓글이 '링크 없이' 순수한 텍스트라면,  
+      환영 인사 메시지가 자동으로 그룹에 표시됩니다.
+- **이미 한 번이라도 댓글을 작성한 유저는**
+    - 이후 올리는 모든 댓글에서 http/https 링크는 즉시 삭제 처리됩니다(강퇴는 아님).
+    - 일반 텍스트 또는 이미지/링크 없는 답글은 모두 허용됩니다.
 
 ---
 
 ## 기타 안내
 
-- 메시지 삭제/강퇴 기능을 위해 **봇을 공지방/그룹 모두에 '관리자'로 등록**해야 정상 동작합니다.
+- **반드시 봇을 공지방/토론방(그룹) 모두에 '관리자'로 등록해야**  
+  봇의 메시지 삭제·강퇴 기능이 정상 작동합니다!
 - writers.json, auth_status.json 등 데이터 파일은 봇 실행 폴더에 자동 관리됩니다.
 
 ---
 
 # Telegram Auto-Kick & Anti Spam-Reply Bot
 
-A powerful bot for managing your Telegram group/channel with automatic banning and spam link removal.
+A robust and automatic moderation bot for Telegram groups/channels.
 
 ## Features
 
-- **Auto-kick:** Instantly bans & unbans every new human member for spam protection (re-invitation possible).
-- **Anti link-reply spam:**  
-  If a reply (comment) containing an http(s) link is posted to a notice/channel message (including in forward/discussion groups), the bot deletes the message and bans the user from both chat_id and NOTICE_CHAT_ID.
-- **Welcome first comment:**  
-  New users posting their first comment in the group (non-link) are greeted with a welcome message.
-- **Admin authentication persistence:**  
-  Auth status is saved to a file, so no need to re-authenticate after bot restart.
+- **Auto-kick:**  
+  Instantly bans (and unbans) every new human member for spam protection (re-invite allowed).  
+  *Bots are not banned.*
+
+- **Detailed anti-link-reply ban logic:**  
+  - When a user posts their **first comment** in the group/channel:
+    - If that **first message contains an http or https link**,  
+      the user is immediately banned from **both the group (chat_id) and the notice channel (NOTICE_CHAT_ID)**.
+      The offending message is deleted.
+      If the first comment contains no link, a welcome message is sent.
+  - For users who have commented before:
+    - **Any future comment containing an http(s) link is always deleted** (but user is NOT kicked).
+
+- **Welcome to first comment:**  
+  If the first comment (reply) contains no link, a public welcome message is sent as reply.
+
+- **Persistent admin authentication:**  
+  Auth status is remembered via a json file, so no need to re-authenticate after restart.
+
 - **Admin commands:**  
-  `/auth` (one-time), `/stop`, `/restart`
-- **Works both in main notice channel and discussion groups.**
+  `/auth` (one-time), `/stop`, `/restart` (admin only)
+
+- **Works on channel (notice), discussion, and forwarding groups.**
 
 ## Requirements
 
@@ -108,14 +148,14 @@ pip install python-telegram-bot
 
 ## Setup
 
-1. **Clone this repository and cd into the folder.**
+1. **Clone this repo and enter the folder.**
 
-2. **Configure your settings:**  
-   - Copy `copy.config.json` to `config.json`
-   - Fill in:
-        - `TOKEN`: (Your bot token)
-        - `ADMIN_ID`: (Numeric telegram user id)
-        - `NOTICE_CHAT_ID`: (Your notice channel chat id, e.g. `-100xxxx`)
+2. **Configure your settings:**
+    - Copy `copy.config.json` to `config.json`.
+    - Fill in:
+        - `TOKEN`: your bot token
+        - `ADMIN_ID`: your numeric Telegram user ID
+        - `NOTICE_CHAT_ID`: your main notice channel's chat id (e.g. `-100xxxx`)
 
     Example:
     ```json
@@ -126,14 +166,14 @@ pip install python-telegram-bot
     }
     ```
 
-3. **Run**
+3. **Run the bot**
    ```bash
    python ban_bot.py
    ```
 
-4. **Authenticate (one-time):**  
+4. **Authenticate (one-time):**
    Send `/auth` as ADMIN_ID to the bot in Telegram.
-   No need to authenticate again after restart.
+   After that, no further authentication is required.
 
 ## Commands
 
@@ -143,7 +183,19 @@ pip install python-telegram-bot
 
 ---
 
+## Moderation & Ban Details
+
+- **If a user's very first comment in the group/channel contains an http/https link:**
+    - The user is instantly banned from BOTH the group (`chat_id`) and the notice channel (`NOTICE_CHAT_ID`).
+    - The spam message is deleted.
+    - If the comment contains NO link, a public welcome message is sent.
+- **For existing users (not first comment):**
+    - Any reply (comment) containing http(s) links is always deleted (but the user is NOT banned).
+    - Plain text/comments without links are always allowed.
+
+---
+
 ## Notes
 
-- For message deletion and ban/unban features to work, you must add the bot as an **admin** in both your notice channel and discussion group!
-- writers.json, auth_status.json and other data files are automatically managed in the bot's folder.
+- For ban/delete actions to work, **add the bot as an admin both in your notice channel and the associated group!**
+- All data and state (writers.json, auth_status.json) is handled automatically in the bot directory.
