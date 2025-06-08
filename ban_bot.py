@@ -101,6 +101,22 @@ def is_reply_to_notice(message):
         
     return False
 
+def message_contains_link(msg):
+    # 텍스트 내 http, https 링크
+    text = msg.text or msg.caption or ""
+    if re.search(r'http[s]?://', text, re.IGNORECASE):
+        return True
+
+    # '하이퍼링크/URL' entity 존재 시
+    entities = list(msg.entities or []) + list(msg.caption_entities or [])
+    for ent in entities:
+        # text_link: 마크다운/HTML 등으로 삽입된 하이퍼링크
+        # url: 자동 감지 URL (보통 http로 시작하는 걸로 자동 탐지됨)
+        if ent.type in ['url', 'text_link']:
+            return True
+    return False
+
+
 async def spam_reply_handler(update: Update, context: CallbackContext):
     if not authenticated or stopped or NOTICE_CHAT_ID is None or update.effective_user.id == ADMIN_ID:
         return
@@ -132,7 +148,7 @@ async def spam_reply_handler(update: Update, context: CallbackContext):
     # http(s) 링크 포함 여부
     is_link_contains = True
     text = msg.text or msg.caption
-    if not re.search(r'http[s]?://', text, re.IGNORECASE):
+    if not message_contains_link(msg):
         # 링크는 없고 첫댓글 환영식
         if is_first_comment:
             user = msg.from_user
