@@ -96,6 +96,25 @@ pip install python-telegram-bot
 
 ---
 
+## 자동 강퇴에 대한 추가 안내
+
+- **자동 강퇴 후 사용자의 실제 상태:**  
+  이 봇은 그룹에 새로 들어온 "사람" 멤버를 즉시 강퇴(추방)합니다. 이로 인해 그룹 인원에서 제외되지만,
+  **강퇴 및 즉시 언밴되어 재초대가 가능하며**,  
+  필요시 관리자가 직접 사용자를 다시 초대할 수 있습니다.
+
+- **공지방-그룹 연동주의:**  
+  텔레그램의 구조상, 사용자가 그룹에서 강퇴되었더라도  
+  **공지방(채널)을 통한 "댓글" 작성은 여전히 가능합니다.**  
+  (공지방/포워딩 구조의 토론방 연결방식 때문에 발생하는 현상임)
+
+- **다시 초대하고 싶을 때:**  
+  강퇴된 유저를 그룹 인원으로 복귀시키려면  
+  관리자가 `/stop` 명령 등으로 봇을 일시정지시킨 뒤  
+  직접 해당 사용자를 초대하면 재참여가 가능합니다.
+
+---
+
 ## 기타 안내
 
 - **반드시 봇을 공지방/토론방(그룹) 모두에 '관리자'로 등록해야**  
@@ -192,6 +211,25 @@ pip install python-telegram-bot
 - **For existing users (not first comment):**
     - Any reply (comment) containing http(s) links is always deleted (but the user is NOT banned).
     - Plain text/comments without links are always allowed.
+
+---
+
+## Additional Notes on Auto-Kicking
+
+- **What really happens after an auto-kick?**  
+  When a human user joins, the bot instantly bans (kicks out) and unbans the member.
+  This means the user is removed from the current group, but
+  **the user can be re-invited at any time** by an admin.
+
+- **Commenting via notice channel:**  
+  Even after being banned from the group,  
+  **the user can still comment on notice/channel posts** via the original channel (Telegram design!).
+  This is because Telegram's forwarding/discussion group integration allows this.
+
+- **How to re-add banned users:**  
+  To genuinely invite a banned user back to the group,  
+  the admin can `/stop` (pause) the bot and then issue a new invitation.
+  After re-inviting, the admin can `/restart` the bot to re-activate the protection.
 
 ---
 
