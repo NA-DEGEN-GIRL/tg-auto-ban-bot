@@ -96,7 +96,12 @@ async def kick_user(update: Update, context: CallbackContext):
 def is_reply_to_notice(message):
     ref_msg = getattr(message, "reply_to_message", None)
     if ref_msg != None:
-        if ref_msg.sender_chat.id == NOTICE_CHAT_ID:
+        try:
+            if ref_msg.sender_chat.id == NOTICE_CHAT_ID:
+                return True
+        except Exception as e:
+            # 일단 reply로 간주
+            print(e)
             return True
         
     return False
