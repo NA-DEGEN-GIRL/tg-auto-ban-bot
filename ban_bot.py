@@ -100,9 +100,9 @@ def is_reply_to_notice(message):
             if ref_msg.sender_chat.id == NOTICE_CHAT_ID:
                 return True
         except Exception as e:
-            # 일단 reply로 간주
+            # 채팅내 reply일 가능성이 높음
             print(e)
-            return True
+            return False
         
     return False
 
