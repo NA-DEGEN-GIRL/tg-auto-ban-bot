@@ -111,7 +111,15 @@ def message_contains_link(msg):
     text = msg.text or msg.caption or ""
     if re.search(r'http[s]?://', text, re.IGNORECASE):
         return True
-
+    
+    # claim 문구
+    if re.search(r'claim', text, re.IGNORECASE):
+        return True
+    
+    # @xxxbot문구
+    if re.search(r'@\w*bot\b', text, re.IGNORECASE):
+        return True
+    
     # '하이퍼링크/URL' entity 존재 시
     entities = list(msg.entities or []) + list(msg.caption_entities or [])
     for ent in entities:
