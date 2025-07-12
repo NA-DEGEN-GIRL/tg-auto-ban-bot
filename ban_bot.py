@@ -9,7 +9,7 @@ test_mode = False
 
 auto_kick = False
 
-BADWORDS = ["노무현","김대중","운지","노짱","부엉이","부엉이바위","노무","이기","무현"]
+BADWORDS = ["김대중","운지","노짱","부엉이","노무","이기","무현"]
 BADWORDS_MAX_GAP = 5
 
 if test_mode:
