@@ -4,6 +4,7 @@ import json
 import asyncio
 import re
 import os
+import unicodedata
 
 test_mode = False
 
@@ -138,25 +139,24 @@ def message_is_too_long(msg, limit=400):
     text = msg.text or msg.caption or ""
     return len(text) >= limit
 
+def normalize_korean(text):
+    # NFC: 조합형 한글을 완성형으로 바꿔준다
+    return unicodedata.normalize('NFC', text)
+
 def message_contains_profanity(msg, badwords, max_gap=4):
-    """
-    - badwords: ['시발', 'sex', ...]
-    - max_gap: 예를 들어 4면 's1e2x', '시12발'까지 허용
-    """
     raw_text = (msg.text or msg.caption or "").lower()
-    cleaned_text = re.sub(r'[\s\r\n]+', '', raw_text).lower() 
+    cleaned_text = re.sub(r'[\s\r\n]+', '', raw_text).lower()
+    cleaned_text = normalize_korean(cleaned_text)   # <<<<<<<< 추가!
     for bad in badwords:
         if len(bad) < 2:
             continue
-        pattern = bad[0]
-        gap = max_gap - (len(bad) - 1)
-        gap = max(gap, 1)
-        # 예) sex + max_gap4면 s.{0,3}e.{0,3}x
-        for ch in bad[1:]:
-            pattern += f".{{0,{gap}}}" + ch
+        pattern = ".*".join(map(re.escape, bad))
+        #print(f"검사패턴: {pattern}, 검사대상: {cleaned_text}")
         if re.search(pattern, cleaned_text, re.IGNORECASE):
+            #print("탐지: ", bad)
             return True
     return False
+
 
 async def spam_reply_handler(update: Update, context: CallbackContext):
     #print(authenticated)
