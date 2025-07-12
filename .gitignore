@@ -8,3 +8,4 @@ config_test.json
 auth_status.json
 writers.json
 writers_test.json
+.run

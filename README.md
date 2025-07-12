@@ -1,33 +1,40 @@
-# Telegram 자동 강제퇴장 & 스팸 댓글 방지 봇
+# Telegram 자동 강제퇴장 & 스팸/욕설/도배 방지 봇
 
-텔레그램 그룹/공지방(채널/토론방 등) 관리용 자동화 봇입니다.
+텔레그램 그룹/공지방(채널/토론방 등) 관리용으로 만든 자동화 필터 봇입니다.
 
 ## 주요 기능
 
 - **자동 강퇴:**  
-  새로 들어온 사용자(사람)를 즉시 그룹에서 강퇴(언밴 포함, 재초대 가능). *봇 계정은 강퇴하지 않음*
-- **스팸 링크 댓글 완벽 차단:**  
-  - 첫 댓글에 http/https, 도메인, 하이퍼링크, 숨겨진 링크 등 "모든 형태의 링크"가 포함되면 즉시 강퇴.
-  - 기존 댓글을 남긴 사용자가 링크를 포함한 댓글 작성 시 해당 댓글만 삭제(강퇴X).
-- **첫 댓글 환영:**  
-  링크 없는 첫 댓글에는 환영 메시지 자동 발송.
+  새로 들어온 사용자(사람 멤버)는 자동으로 그룹에서 즉시 강퇴(언밴 포함, 재초대 가능).  
+  *봇 계정은 강퇴하지 않음. `auto_kick` 설정으로 활성화/비활성화 가능*
+- **스팸 링크, 홍보, 봇/claim 패턴 완벽 차단:**  
+  - 첫 댓글에 http/https, 도메인, 하이퍼링크, 숨겨진 링크(`text_link`), `@xxxbot`, `claim` 등  
+    "모든 형태의 홍보/스팸/봇 마케팅"이 있으면 즉시 강퇴 및 메시지 삭제.
+  - 기존 유저의 스팸/링크 댓글은 해당 댓글만 즉시 삭제(강퇴 X).
+- **욕설/특정 키워드(변형 포함) 필터:**  
+  - BADWORDS 리스트에 등록된 단어(예: 시발, sex, 병신 등)가  
+    '시a발', 's1e2x', '운12지'처럼 **중간에 4글자 내외까지 변형되어 들어가도** 모두 탐지 및 삭제.
+- **도배/장문 차단:**  
+  - 텍스트/캡션이 400자 이상인 메시지는 자동으로 삭제(글자수 조절 가능).
+- **첫 댓글 환영 기능:**  
+  - 링크·욕설·도배에 안 걸리는 첫 댓글일 경우 환영 메시지 자동 전송.
 - **공지방/토론방 대응:**  
-  채널, 포워딩된 토론방, discussion, 자동연동된 모든 채팅 지원.
-- **권한 및 인증 영속:**  
+  채널, 포워딩된 토론방, discussion, 자동연동된 모든 텔레그램 채팅 지원.
+- **관리자 명령 및 인증 영속:**  
   `/auth`(최초 1회), `/stop`, `/restart`  
-  인증 상태는 자동 저장되어 재시작시 재인증 불필요.
+  인증 상태는 파일로 자동 저장되어 재시작해도 인증이 유지됩니다.
 
 ---
 
 ## 설치 및 실행
 
-1. **필수 패키지 설치**
+1. **패키지 설치**
     ```bash
     pip install python-telegram-bot
     ```
 
 2. **설정파일 준비**
-    `copy.config.json`을 `config.json`으로 복사 후 아래처럼 입력
+    - `copy.config.json`을 `config.json`으로 복사 후 아래 형식으로 값 입력
     ```json
     {
         "TOKEN": "YOUR_BOT_TOKEN",
@@ -36,20 +43,19 @@
     }
     ```
 
-3. **실행**
+3. **봇 실행**
     ```bash
     python ban_bot.py
     ```
 
-4. **초기 인증**
-    Telegram에서 관리자인 계정으로 `/auth` 명령 전송(최초 1회).  
-    인증 후에는 재시작해도 별도 인증 필요 없음.
+4. **최초 인증**
+    Telegram에서 관리자인 계정으로 `/auth` 명령을 1회 전송(이후 자동 인증).
 
 ---
 
 ## 명령어
 
-- `/auth`: 최초 관리자 인증(관리자만)
+- `/auth`: 최초 관리자 인증(관리자만, 1회)
 - `/stop`: 봇 일시정지(관리자만)
 - `/restart`: 봇 재시작(관리자만)
 
@@ -57,65 +63,75 @@
 
 ## 상세 동작 규칙
 
-### 자동 강퇴 설명
-- **그룹 입장 시:**  
-  새로 들어온 사용자는 그룹/채널에서 바로 강퇴(즉시 언밴).  
-  그룹원 수 유지 목적이며, 관리자가 직접 `/stop` 후 다시 초대 가능.
-- **강퇴 후에도:**  
-  사용자는 공지방(채널) 원글에 댓글을 달 수 있음(텔레그램 구조상),  
-  이는 정상 동작으로 봇/텔레그램 한계임.
+### 자동 강퇴 동작
+- 새 유저는 그룹 입장 즉시(항목 활성화 시) 강퇴/언밴됩니다.
+- 강퇴된 유저는 그룹원에선 제외되며, **공지방(채널) 원글에는 댓글을 달 수 있습니다.**
+- 강퇴된 사용자를 다시 초대하려면 `/stop` 후 수동으로 초대, 이후 `/restart`로 재가동하세요.
 
-### 댓글/링크 필터링
+### 스팸/광고/링크/특정 패턴 고급 필터링
 - **첫 댓글:**  
-  http/https, 도메인(예: naver.com), 숨겨진 하이퍼링크 등  
-  텔레그램이 'url' 또는 'text_link' entity로 인식하는 **모든 링크**가 포함되어 있으면
-    - 해당 유저는 그룹/공지방 모두에서 즉시 강퇴, 메시지는 삭제
-    - 링크가 없다면 환영 메시지 발송 후 일반 유저로 기록
+  http/https, 도메인, 숨겨진 하이퍼링크, `@xxxbot`, `claim` 등  
+  텔레그램의 'url', 'text_link' entity로 감지되는 **모든 링크성/스팸 패턴**이 포함된 경우  
+    - 즉시 그룹/공지방에서 강퇴, 메시지는 삭제
+  - 링크성 내용이 없다면 환영 메시지 전송 후 일반 유저로 처리
 - **기존 유저:**  
-  이후 모든 댓글에서 위 형태의 링크·도메인·숨겨진 하이퍼링크가 발견되면  
-  해당 댓글만 삭제, 유저는 강퇴되지 않음
+  위 방식에 해당하는 내용이 포함된 댓글은 **즉시 삭제되나, 강퇴되지는 않음**
 
-> **참고:**  
-> "http로 시작하지 않아도 도메인(google.com 등)이나 숨겨진 하이퍼링크(마크다운/HTML)가  
-> 있으면 텔레그램 엔티티 분석을 통해 모두 차단합니다."
+### 욕설/금칙어 필터
+- BADWORDS 리스트의 단어(예: `["시발", "sex", ...]`)가  
+  `시a발`, `ㅅ ㅂ`, `s1e2x`처럼 **중간 문자열/특수문자/숫자 등 변형**까지 감지해서 삭제
+- BADWORDS_MAX_GAP 값 설정으로 글자 간 변형 허용 폭 조정
 
----
-
-## 기타 안내
-
-- 봇이 **공지방 및 토론방(그룹) 모두의 "관리자"**여야 삭제·강퇴가 동작합니다.
-- writers.json, auth_status.json 등 데이터 파일은 봇 폴더에 자동 저장/관리됩니다.
+### 도배/장문 방지
+- 텍스트/캡션 400자 이상인 메시지는 자동으로 삭제되고 "장문 도배 삭제" 알림 전송
 
 ---
 
-# Telegram Auto-Kick & Anti Spam-Reply Bot
+## 코드 및 활용 주의사항
 
-A robust automation bot for Telegram groups and notice channels.
+- 봇은 **공지방 및 토론방(그룹) 모두에 "관리자"** 권한으로 등록해야 삭제/강퇴가 정상 동작합니다.
+- writers.json, auth_status.json 등 데이터 파일은 봇 폴더에 자동 관리됩니다.
+- BADWORDS는 코드 내 상수/리스트로 수정하거나, config 등 외부 파일과 연동해도 좋습니다.
+- 메시지 삭제가 여러 번 이뤄질 수 있으나(금칙어+링크+길이 등 동시 충족 시)  
+  except으로 무시하므로 운영상 문제는 거의 없음.
+
+---
+
+## 예시로 걸러지는 패턴들
+
+- http/https, `naver.com`, `abc123.site` (자동 도메인 링크)
+- 하이퍼링크: `[구글](https://google.com)`, `[xx](kbs.com)`
+- `@XXXXbot` (텔레그램 봇 홍보 계정)
+- 도배 장문(400자 이상), 금칙어(변형 포함): `시12발`, `s--e!!x`, `運지` 등
+
+---
+
+## 영어 안내문(English Section)
+
+# Telegram Auto-Kick & Spam/Profanity Moderation Bot
+
+A robust automation and anti-spam/profanity bot for managing Telegram groups and notice channels.
 
 ## Features
 
-- **Auto-kick new users:**  
-  Kicks any new user (except bots) from the group instantly (ban & unban for quick re-invite access).
-- **Spam link detection/block:**  
-  - *First comment:* If it contains any form of link (http/https, domain only, hidden hyperlinks [text_link], etc) — user is banned from both chat (`chat_id`) and channel (`NOTICE_CHAT_ID`), message is deleted.
-  - *Existing users:* Any future comment with a link/domain/hyperlink is always deleted (but no ban).
-- **Welcome first comment:**  
-  If the first comment has no links, a welcome reply is sent.
-- **Full support for notice/discussion/forward groups**
-- **Persistent admin authentication/commands:**  
-  `/auth` (once), `/stop`, `/restart`. Auth state saved to file.
+- **Auto-kick:**  
+  Kicks (and unbans) any new human (except bots). Optionally toggled with `auto_kick`.  
+- **Comprehensive spam advert and link protection:**  
+  - First comment: instant ban if containing http/https, domains, hidden hyperlinks ([text_link]), `@xxxbot`, certain "claim" keywords, etc.
+  - Existing users: any such message is deleted but not banned.
+- **Profanity/keyword detection:**  
+  - Detects keywords (in `BADWORDS` list) robustly, even when split with up to N other chars (eg. `s.e.x`, `시12발`).
+- **Flood/long message filter:**  
+  - Any message/caption of 400 chars or more is deleted and reported.
+- **Welcome message for first proper comment**
+- **Supports notice channels, discussion groups, all types of Telegram chats.**
+- **Persistent admin authentication:**  
+  `/auth` (once), `/stop`, `/restart` (all states saved/reloaded automatically).
 
----
+## Setup
 
-## Installation & Usage
-
-1. **Install python-telegram-bot**
-    ```bash
-    pip install python-telegram-bot
-    ```
-
-2. **Configure your config file**
-    - Copy `copy.config.json` to `config.json` and edit as:
+1. `pip install python-telegram-bot`
+2. Copy & edit `copy.config.json` to `config.json`:
     ```json
     {
         "TOKEN": "YOUR_BOT_TOKEN",
@@ -123,51 +139,26 @@ A robust automation bot for Telegram groups and notice channels.
         "NOTICE_CHAT_ID": -1001234567890
     }
     ```
+3. Run `python ban_bot.py`
+4. Authenticate once with `/auth` as admin user.
 
-3. **Run**
-    ```bash
-    python ban_bot.py
-    ```
+## Example patterns detected
 
-4. **Initial authentication**
-    Send `/auth` (as ADMIN_ID) to the bot once.  
-    After the first time, restart does NOT require re-auth.
-
----
+- domain-only links (e.g., `google.com`)
+- http/https links
+- telegram bot promotion (`@XXXXbot`)
+- hidden hyperlinks (`[abc](xyz.com)`)
+- spam claim words
+- profanity (even with extra chars)
+- flood/very long messages
 
 ## Commands
 
-- `/auth`: authenticate as admin (one-time, admin only)
-- `/stop`: pause bot (admin only)
-- `/restart`: resume bot (admin only)
-
----
-
-## Operation details
-
-### Auto-kick
-- **On join:**  
-  Any human joining is kicked from group & unbanned (can rejoin).  
-  If you want to re-invite a kicked user, `/stop` the bot and invite manually; then `/restart`.
-
-- **Note:**  
-  Even a kicked user can still reply to notice/channel posts  
-  (Telegram design; not a bug).
-
-### Comment/link detection
-- **First ever comment:**  
-  Contains *any* type of link: http, domain (e.g. site.com), hidden hyperlink — user is banned and message deleted.  
-  No link: welcome message sent and user is whitelisted.
-- **Existing users:**  
-  If a comment has *any* form of link (including non-http domains, hidden hyperlinks, etc), that message is deleted, but the user is NOT banned.
-
-> **Tip:**  
-> Domain-only, http-less links (naver.com, google.co.kr) and "hidden hyperlinks" ([label](site.com) style)  
-> are detected and filtered, using Telegram message entities parsing.
-
----
+- `/auth`: First-time admin authentication.
+- `/stop`: Pause bot actions.
+- `/restart`: Resume bot.
 
 ## Notes
 
-- The bot **must be admin** in both channel & group/discussion for ban/delete to work.
-- Data files (`writers.json`, `auth_status.json` etc.) are managed in the bot's folder automatically.
+- Bot must have admin authority in both channel & group/discussion.
+- All state/writer/auth files are auto-managed in the bot directory.

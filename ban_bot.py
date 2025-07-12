@@ -7,6 +7,11 @@ import os
 
 test_mode = False
 
+auto_kick = False
+
+BADWORDS = ["노무현","김대중","운지"]
+BADWORDS_MAX_GAP = 4
+
 if test_mode:
     # --- 설정/로드 ---
     with open("config_test.json", "r") as f:
@@ -129,6 +134,28 @@ def message_contains_link(msg):
             return True
     return False
 
+def message_is_too_long(msg, limit=400):
+    text = msg.text or msg.caption or ""
+    return len(text) >= limit
+
+def message_contains_profanity(msg, badwords, max_gap=4):
+    """
+    - badwords: ['시발', 'sex', ...]
+    - max_gap: 예를 들어 4면 's1e2x', '시12발'까지 허용
+    """
+    text = (msg.text or msg.caption or "").lower()
+    for bad in badwords:
+        if len(bad) < 2:
+            continue
+        pattern = bad[0]
+        gap = max_gap - (len(bad) - 1)
+        gap = max(gap, 1)
+        # 예) sex + max_gap4면 s.{0,3}e.{0,3}x
+        for ch in bad[1:]:
+            pattern += f".{{0,{gap}}}" + ch
+        if re.search(pattern, text, re.IGNORECASE):
+            return True
+    return False
 
 async def spam_reply_handler(update: Update, context: CallbackContext):
     if not authenticated or stopped or NOTICE_CHAT_ID is None or update.effective_user.id == ADMIN_ID:
@@ -195,6 +222,26 @@ async def spam_reply_handler(update: Update, context: CallbackContext):
         except Exception as e:
             print(f"유저 강퇴 실패: {e}")
 
+    if message_contains_profanity(msg, BADWORDS, BADWORDS_MAX_GAP):
+        try:
+            await context.bot.delete_message(chat_id=chat_id, message_id=msg.message_id)
+            print(f"메시지 금지어 삭제: {user_id}")
+            user = msg.from_user
+            name = f"{user.first_name} {user.last_name or ''}".strip()
+            await msg.reply_text(f"{name} 금지어 삭제")
+        except Exception as e:
+            print(f"메시지 삭제 실패: {e}")
+    
+    if message_is_too_long(msg, 400):
+        try:
+            await context.bot.delete_message(chat_id=chat_id, message_id=msg.message_id)
+            print(f"메시지 도배 삭제: {user_id}")
+            user = msg.from_user
+            name = f"{user.first_name} {user.last_name or ''}".strip()
+            await msg.reply_text(f"{name} 장문 도배 삭제")
+        except Exception as e:
+            print(f"메시지 삭제 실패: {e}")
+
 # ========== 기타 명령 ==========
 async def stop_command(update: Update, context: CallbackContext):
     if not authenticated:
@@ -235,7 +282,8 @@ def main():
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(CommandHandler("stop", stop_command))
     app.add_handler(CommandHandler("restart", restart_command))
-    app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, kick_user))
+    if auto_kick:
+        app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, kick_user))
     app.add_handler(MessageHandler(filters.ALL, spam_reply_handler))  # ← spam reply 감지
 
     print("🤖 봇이 실행 중입니다...")
