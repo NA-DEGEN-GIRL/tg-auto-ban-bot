@@ -9,8 +9,8 @@ test_mode = False
 
 auto_kick = False
 
-BADWORDS = ["김대중","운지","노짱","부엉이","노무","이기","무현"]
-BADWORDS_MAX_GAP = 5
+BADWORDS = ["김대중","운지","노짱","부엉이","노무","이기","무현","노무현"]
+BADWORDS_MAX_GAP = 50
 
 if test_mode:
     # --- 설정/로드 ---
@@ -143,7 +143,8 @@ def message_contains_profanity(msg, badwords, max_gap=4):
     - badwords: ['시발', 'sex', ...]
     - max_gap: 예를 들어 4면 's1e2x', '시12발'까지 허용
     """
-    text = (msg.text or msg.caption or "").lower()
+    raw_text = (msg.text or msg.caption or "").lower()
+    cleaned_text = re.sub(r'[\s\r\n]+', '', raw_text).lower() 
     for bad in badwords:
         if len(bad) < 2:
             continue
@@ -153,7 +154,7 @@ def message_contains_profanity(msg, badwords, max_gap=4):
         # 예) sex + max_gap4면 s.{0,3}e.{0,3}x
         for ch in bad[1:]:
             pattern += f".{{0,{gap}}}" + ch
-        if re.search(pattern, text, re.IGNORECASE):
+        if re.search(pattern, cleaned_text, re.IGNORECASE):
             return True
     return False
 
@@ -203,6 +204,7 @@ async def spam_reply_handler(update: Update, context: CallbackContext):
             name = f"{user.first_name} {user.last_name or ''}".strip()
             await msg.reply_text(f"{name} 첫 댓글 고맙다. 앞으로 분위기 잘 띄워라 🎉")
             return
+        is_link_contains = False
     
     print('text',text)
     print('link cointained?',is_link_contains)
@@ -213,8 +215,9 @@ async def spam_reply_handler(update: Update, context: CallbackContext):
     # 처음 글을 쓰거나, 댓글인경우엔 링크를 항상 비허용 (삭제처리만)
     if is_first_comment or is_reply:
         try:
-            await context.bot.delete_message(chat_id=chat_id, message_id=msg.message_id)
-            print(f"메시지 삭제: {user_id}")
+            if is_link_contains:
+                await context.bot.delete_message(chat_id=chat_id, message_id=msg.message_id)
+                print(f"메시지 삭제: {user_id}")
         except Exception as e:
             print(f"메시지 삭제 실패: {e}")
     else:
