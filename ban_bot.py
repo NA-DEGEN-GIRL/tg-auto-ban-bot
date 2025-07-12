@@ -9,8 +9,8 @@ test_mode = False
 
 auto_kick = False
 
-BADWORDS = ["노무현","김대중","운지"]
-BADWORDS_MAX_GAP = 4
+BADWORDS = ["노무현","김대중","운지","노짱","부엉이","부엉이바위","노무","이기","무현"]
+BADWORDS_MAX_GAP = 5
 
 if test_mode:
     # --- 설정/로드 ---
@@ -158,10 +158,18 @@ def message_contains_profanity(msg, badwords, max_gap=4):
     return False
 
 async def spam_reply_handler(update: Update, context: CallbackContext):
+    #print(authenticated)
+    #print(stopped)
+    #print(NOTICE_CHAT_ID)
+    #print(update.effective_user.id)
+    #print(update.message)
+
     if not authenticated or stopped or NOTICE_CHAT_ID is None or update.effective_user.id == ADMIN_ID:
         return
 
     msg = update.message
+
+    #print(msg)
 
     # --- 첫 댓글을 쓰는 유저인지 판별 ---
     chat_id = msg.chat_id
@@ -179,7 +187,7 @@ async def spam_reply_handler(update: Update, context: CallbackContext):
     if not msg or not (msg.text or msg.caption):
         return
     
-    if not msg.reply_to_message:
+    if not msg.reply_to_message and chat_id == NOTICE_CHAT_ID:
         return
 
     # 공지 원글에 대한 댓글인가?
@@ -194,7 +202,7 @@ async def spam_reply_handler(update: Update, context: CallbackContext):
             user = msg.from_user
             name = f"{user.first_name} {user.last_name or ''}".strip()
             await msg.reply_text(f"{name} 첫 댓글 고맙다. 앞으로 분위기 잘 띄워라 🎉")
-        return
+            return
     
     print('text',text)
     print('link cointained?',is_link_contains)
@@ -221,6 +229,8 @@ async def spam_reply_handler(update: Update, context: CallbackContext):
             print(f"유저 {user_id} 강퇴 완료")
         except Exception as e:
             print(f"유저 강퇴 실패: {e}")
+
+    print(message_contains_profanity(msg, BADWORDS, BADWORDS_MAX_GAP))
 
     if message_contains_profanity(msg, BADWORDS, BADWORDS_MAX_GAP):
         try:
