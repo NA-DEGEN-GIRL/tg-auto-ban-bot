@@ -164,7 +164,12 @@ async def spam_reply_handler(update: Update, context: CallbackContext):
     #print(NOTICE_CHAT_ID)
     #print(update.effective_user.id)
     #print(update.message)
+    #print(update.message.chat_id)
 
+    # special case by auto forward by system
+    if update.effective_user.id == 777000 or msg.from_user is None:
+        return
+    
     if not authenticated or stopped or NOTICE_CHAT_ID is None or update.effective_user.id == ADMIN_ID:
         return
 
@@ -190,6 +195,7 @@ async def spam_reply_handler(update: Update, context: CallbackContext):
     
     if not msg.reply_to_message and chat_id == NOTICE_CHAT_ID:
         return
+    
 
     # 공지 원글에 대한 댓글인가?
     is_reply = is_reply_to_notice(msg)
