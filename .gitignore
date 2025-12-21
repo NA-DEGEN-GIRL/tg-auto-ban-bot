@@ -18,3 +18,4 @@ all_subscribers.json
 function_test.py
 .python-version
 *.session*
+cyrillic_users.json
