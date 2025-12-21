@@ -25,6 +25,7 @@ else:
 TOKEN = config["TOKEN"]
 ADMIN_ID = config["ADMIN_ID"]
 NOTICE_CHAT_ID = config.get("NOTICE_CHAT_ID", None)
+KICK_EXCEPTIONS = config.get("KICK_EXCEPTIONS", None)
 
 AUTH_STATE_PATH = "auth_status.json"
 
@@ -104,7 +105,10 @@ async def kick_user(update: Update, context: CallbackContext):
                 #await update.message.reply_text(f"🚫 {user.first_name}님이 러시아어 닉네임으로 영구 강퇴되었습니다.")
                 print(f"🚫 러시아어 닉네임 강퇴: {display_name} (@{username})")
                 continue
-
+            
+            if update.message.chat_id in KICK_EXCEPTIONS:
+                return
+            
             await context.bot.ban_chat_member(chat_id=update.message.chat_id, user_id=user.id)
             await context.bot.unban_chat_member(chat_id=update.message.chat_id, user_id=user.id)
             await update.message.reply_text(f"{user.first_name}님이 자동 강퇴되었습니다. 🚫 (다시 초대 가능)")
@@ -248,6 +252,7 @@ async def spam_reply_handler(update: Update, context: CallbackContext):
         try:
             for notice_chat in NOTICE_CHAT_ID:
                 await context.bot.ban_chat_member(chat_id=notice_chat, user_id=int(user_id))
+                print(f"유저 {user_id} 강퇴 완료")
 
             await context.bot.ban_chat_member(chat_id=chat_id, user_id=int(user_id))
             print(f"유저 {user_id} 강퇴 완료")
