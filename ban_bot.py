@@ -8,10 +8,10 @@ import unicodedata
 
 test_mode = False
 
-auto_kick = False
+auto_kick = True
 
-BADWORDS = ["김대중","운지","노짱","부엉이","노무","이기","무현","노무현"]
-BADWORDS_MAX_GAP = 50
+BADWORDS = ["김대중","운지","노짱","부엉이","노무","이기","무현"]
+BADWORDS_MAX_GAP = 10
 
 if test_mode:
     # --- 설정/로드 ---
@@ -93,6 +93,17 @@ async def kick_user(update: Update, context: CallbackContext):
             if user.is_bot:
                 print(f"🤖 {user.first_name} (봇) 감지 - 강퇴하지 않음")
                 continue
+            
+            # === 키릴 문자(러시아어) 닉네임 체크 추가 ===
+            display_name = f"{user.first_name or ''} {user.last_name or ''}".strip()
+            username = user.username or ""
+            
+            if contains_cyrillic(display_name) or contains_cyrillic(username):
+                await context.bot.ban_chat_member(chat_id=update.message.chat_id, user_id=user.id)
+                # unban 없이 영구 차단
+                #await update.message.reply_text(f"🚫 {user.first_name}님이 러시아어 닉네임으로 영구 강퇴되었습니다.")
+                print(f"🚫 러시아어 닉네임 강퇴: {display_name} (@{username})")
+                continue
 
             await context.bot.ban_chat_member(chat_id=update.message.chat_id, user_id=user.id)
             await context.bot.unban_chat_member(chat_id=update.message.chat_id, user_id=user.id)
@@ -103,7 +114,7 @@ def is_reply_to_notice(message):
     ref_msg = getattr(message, "reply_to_message", None)
     if ref_msg != None:
         try:
-            if ref_msg.sender_chat.id == NOTICE_CHAT_ID:
+            if ref_msg.sender_chat.id in NOTICE_CHAT_ID:
                 return True
         except Exception as e:
             # 채팅내 reply일 가능성이 높음
@@ -111,6 +122,13 @@ def is_reply_to_notice(message):
             return False
         
     return False
+
+def contains_cyrillic(text: str) -> bool:
+    """키릴 문자(러시아어 등) 포함 여부 확인"""
+    if not text:
+        return False
+    cyrillic_pattern = re.compile(r'[\u0400-\u04FF]')
+    return bool(cyrillic_pattern.search(text))
 
 def message_contains_link(msg):
     # 텍스트 내 http, https 링크
@@ -135,7 +153,7 @@ def message_contains_link(msg):
             return True
     return False
 
-def message_is_too_long(msg, limit=400):
+def message_is_too_long(msg, limit=1000):
     text = msg.text or msg.caption or ""
     return len(text) >= limit
 
@@ -145,37 +163,33 @@ def normalize_korean(text):
 
 def message_contains_profanity(msg, badwords, max_gap=4):
     raw_text = (msg.text or msg.caption or "").lower()
-    cleaned_text = re.sub(r'[\s\r\n]+', '', raw_text).lower()
-    cleaned_text = normalize_korean(cleaned_text)   # <<<<<<<< 추가!
+    cleaned_text = re.sub(r'\s+', '', raw_text) 
+    cleaned_text = normalize_korean(cleaned_text) # 한글 정규화
+    
     for bad in badwords:
-        if len(bad) < 2:
+        if len(bad) < 1:
             continue
-        pattern = ".*".join(map(re.escape, bad))
-        #print(f"검사패턴: {pattern}, 검사대상: {cleaned_text}")
+        
+        # 비속어 자체에 정규표현식 특수문자가 있을 경우를 대비해 이스케이프 처리
+        # \b (단어 경계)는 제거하여, "이기"가 "이기적" 안에 있더라도 탐지하도록 합니다.
+        pattern = re.escape(bad) 
+        
+        # print(f"검사패턴: {pattern}, 검사대상: {cleaned_text}")
         if re.search(pattern, cleaned_text, re.IGNORECASE):
-            #print("탐지: ", bad)
+            # print("탐지: ", bad)
             return True
+            
     return False
 
 
 async def spam_reply_handler(update: Update, context: CallbackContext):
-    #print(authenticated)
-    #print(stopped)
-    #print(NOTICE_CHAT_ID)
-    #print(update.effective_user.id)
-    #print(update.message)
-    #print(update.message.chat_id)
-
     # special case by auto forward by system
+    msg = update.message
     if update.effective_user.id == 777000 or msg.from_user is None:
         return
     
     if not authenticated or stopped or NOTICE_CHAT_ID is None or update.effective_user.id == ADMIN_ID:
         return
-
-    msg = update.message
-
-    #print(msg)
 
     # --- 첫 댓글을 쓰는 유저인지 판별 ---
     chat_id = msg.chat_id
@@ -193,10 +207,9 @@ async def spam_reply_handler(update: Update, context: CallbackContext):
     if not msg or not (msg.text or msg.caption):
         return
     
-    if not msg.reply_to_message and chat_id == NOTICE_CHAT_ID:
+    if not msg.reply_to_message and chat_id in NOTICE_CHAT_ID:
         return
     
-
     # 공지 원글에 대한 댓글인가?
     is_reply = is_reply_to_notice(msg)
 
@@ -212,10 +225,10 @@ async def spam_reply_handler(update: Update, context: CallbackContext):
             return
         is_link_contains = False
     
-    print('text',text)
-    print('link cointained?',is_link_contains)
-    print('first comment?', is_first_comment)
-    print('is reply?',is_reply)
+    #print('text',text)
+    #print('link cointained?',is_link_contains)
+    #print('first comment?', is_first_comment)
+    #print('is reply?',is_reply)
 
     # --- 메시지 삭제 ---
     # 처음 글을 쓰거나, 댓글인경우엔 링크를 항상 비허용 (삭제처리만)
@@ -230,16 +243,18 @@ async def spam_reply_handler(update: Update, context: CallbackContext):
         print('처음 쓰는 유저가 아니라 냅둠')
 
     # --- 유저 강퇴/언밴 ---
-    # 첫음 글쓰는데 링크 있으면 무조건 강퇴
+    # 첫음 글쓰는데 링크 있으면 무조건 강퇴, 다른 채널도 구독 불가
     if is_first_comment:
         try:
-            await context.bot.ban_chat_member(chat_id=NOTICE_CHAT_ID, user_id=int(user_id))
+            for notice_chat in NOTICE_CHAT_ID:
+                await context.bot.ban_chat_member(chat_id=notice_chat, user_id=int(user_id))
+
             await context.bot.ban_chat_member(chat_id=chat_id, user_id=int(user_id))
             print(f"유저 {user_id} 강퇴 완료")
         except Exception as e:
             print(f"유저 강퇴 실패: {e}")
 
-    print(message_contains_profanity(msg, BADWORDS, BADWORDS_MAX_GAP))
+    #print(message_contains_profanity(msg, BADWORDS, BADWORDS_MAX_GAP))
 
     if message_contains_profanity(msg, BADWORDS, BADWORDS_MAX_GAP):
         try:
@@ -247,17 +262,19 @@ async def spam_reply_handler(update: Update, context: CallbackContext):
             print(f"메시지 금지어 삭제: {user_id}")
             user = msg.from_user
             name = f"{user.first_name} {user.last_name or ''}".strip()
-            await msg.reply_text(f"{name} 금지어 삭제")
+            #await msg.reply_text(f"{name} 금지어 삭제")
+            await context.bot.send_message(chat_id=chat_id, text=f"{name} 금지어 삭제") 
         except Exception as e:
             print(f"메시지 삭제 실패: {e}")
     
-    if message_is_too_long(msg, 400):
+    if message_is_too_long(msg, 1000):
         try:
             await context.bot.delete_message(chat_id=chat_id, message_id=msg.message_id)
             print(f"메시지 도배 삭제: {user_id}")
             user = msg.from_user
             name = f"{user.first_name} {user.last_name or ''}".strip()
-            await msg.reply_text(f"{name} 장문 도배 삭제")
+            #await msg.reply_text(f"{name} 장문 도배 삭제")
+            await context.bot.send_message(chat_id=chat_id, text=f"{name} 장문 도배 삭제") 
         except Exception as e:
             print(f"메시지 삭제 실패: {e}")
 
