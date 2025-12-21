@@ -9,3 +9,12 @@ auth_status.json
 writers.json
 writers_test.json
 .run
+config_russian.json
+test.py
+ai_models.txt
+get_subscribers.py
+.env
+all_subscribers.json
+function_test.py
+.python-version
+*.session*
