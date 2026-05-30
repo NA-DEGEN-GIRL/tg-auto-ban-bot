@@ -10,22 +10,27 @@ test_mode = False
 
 auto_kick = True
 
-BADWORDS = ["김대중","운지","노짱","부엉이","노무","이기","무현"]
+# BADWORDS는 config 파일(config.json)의 "BADWORDS" 키에서 실시간으로 로드됩니다. (load_badwords 참고)
+# 아래 값은 config에 "BADWORDS" 키가 없을 때만 쓰는 기본값(fallback)입니다.
+BADWORDS_DEFAULT = ["김대중","운지","노짱","부엉이","노무","이기","무현","섹스"]
 BADWORDS_MAX_GAP = 10
 
-if test_mode:
-    # --- 설정/로드 ---
-    with open("config_test.json", "r") as f:
-        config = json.load(f)
-else:
-    # --- 설정/로드 ---
-    with open("config.json", "r") as f:
-        config = json.load(f)
+# --- 설정/로드 ---
+CONFIG_PATH = "config_test.json" if test_mode else "config.json"
+with open(CONFIG_PATH, "r") as f:
+    config = json.load(f)
 
 TOKEN = config["TOKEN"]
 ADMIN_ID = config["ADMIN_ID"]
 NOTICE_CHAT_ID = config.get("NOTICE_CHAT_ID", None)
-KICK_EXCEPTIONS = config.get("KICK_EXCEPTIONS", None)
+KICK_EXCEPTIONS = config.get("KICK_EXCEPTIONS", []) or []
+# SILENT_CHAT_ID: 이 목록에 있는 그룹에서는 봇이 사용자에게 보내는 안내 메시지를 전부 생략합니다.
+# (삭제/강퇴 같은 조치 자체는 그대로 수행하고, 안내는 안 보낸 채 로그(print)만 남김)
+SILENT_CHAT_ID = config.get("SILENT_CHAT_ID", []) or []
+
+def is_silent_chat(chat_id):
+    """SILENT_CHAT_ID에 속한 채팅이면 True. 이런 방에선 사용자 안내 메시지를 보내지 않고 로그만 남긴다."""
+    return chat_id in SILENT_CHAT_ID
 
 AUTH_STATE_PATH = "auth_status.json"
 
@@ -95,23 +100,50 @@ async def kick_user(update: Update, context: CallbackContext):
                 print(f"🤖 {user.first_name} (봇) 감지 - 강퇴하지 않음")
                 continue
             
-            # === 키릴 문자(러시아어) 닉네임 체크 추가 ===
+            # === 영구밴 조건들은 KICK_EXCEPTIONS와 무관하게 항상 적용됨 (예외방에서도 영구밴) ===
             display_name = f"{user.first_name or ''} {user.last_name or ''}".strip()
             username = user.username or ""
-            
+
+            # 키릴 문자(러시아어) 닉네임 → 영구 차단 (unban 없음)
             if contains_cyrillic(display_name) or contains_cyrillic(username):
-                await context.bot.ban_chat_member(chat_id=update.message.chat_id, user_id=user.id)
-                # unban 없이 영구 차단
-                #await update.message.reply_text(f"🚫 {user.first_name}님이 러시아어 닉네임으로 영구 강퇴되었습니다.")
-                print(f"🚫 러시아어 닉네임 강퇴: {display_name} (@{username})")
+                try:
+                    # unban 없이 영구 차단
+                    await context.bot.ban_chat_member(chat_id=update.message.chat_id, user_id=user.id)
+                    print(f"🚫 러시아어 닉네임 강퇴: {display_name} (@{username})")
+                except Exception as e:
+                    # 한 명 실패가 같은 배치의 다른 유저 처리를 막지 않도록 로그만 남기고 진행
+                    print(f"러시아어 닉네임 강퇴 실패: {e}")
                 continue
-            
+
+            # username 없는 계정 → 영구 차단 (unban 없음)
+            if not username:
+                try:
+                    await context.bot.ban_chat_member(chat_id=update.message.chat_id, user_id=user.id)
+                    print(f"🚫 username 없음 영구 강퇴: {display_name} (id={user.id})")
+                except Exception as e:
+                    print(f"username 없음 강퇴 실패: {e}")
+                continue
+
+            # === 여기부터는 일시밴(재초대 가능). KICK_EXCEPTIONS 채팅은 건너뜀 ===
+            # return이 아니라 continue: 같은 배치로 들어온 다른 유저는 계속 처리해야 함
             if update.message.chat_id in KICK_EXCEPTIONS:
-                return
-            
-            await context.bot.ban_chat_member(chat_id=update.message.chat_id, user_id=user.id)
-            await context.bot.unban_chat_member(chat_id=update.message.chat_id, user_id=user.id)
-            await update.message.reply_text(f"{user.first_name}님이 자동 강퇴되었습니다. 🚫 (다시 초대 가능)")
+                continue
+
+            try:
+                await context.bot.ban_chat_member(chat_id=update.message.chat_id, user_id=user.id)
+                await context.bot.unban_chat_member(chat_id=update.message.chat_id, user_id=user.id)
+            except Exception as e:
+                # 실제로 강퇴가 안 됐으면 안내 메시지도 보내지 않는다 (강퇴 메시지 오발송 버그 방지)
+                print(f"자동 강퇴 실패(메시지 미발송): {e}")
+                continue
+            print(f"자동 강퇴: {display_name} (id={user.id})")
+            # 강퇴가 실제로 성공했고, 조용한 방이 아닐 때만 안내 메시지 전송
+            if not is_silent_chat(update.message.chat_id):
+                try:
+                    await update.message.reply_text(f"{user.first_name}님이 자동 강퇴되었습니다. 🚫 (다시 초대 가능)")
+                except Exception as e:
+                    # 안내 메시지 실패가 같은 배치의 다른 유저 처리를 막지 않도록 (강퇴는 이미 성공)
+                    print(f"강퇴 안내 메시지 실패: {e}")
 
 # ========== 스팸 링크 댓글 감지 & 유저 강퇴 ==========
 def is_reply_to_notice(message):
@@ -165,6 +197,31 @@ def normalize_korean(text):
     # NFC: 조합형 한글을 완성형으로 바꿔준다
     return unicodedata.normalize('NFC', text)
 
+# --- BADWORDS 실시간 로드 (config 파일을 수정하면 봇 재시작 없이 즉시 반영됨) ---
+_badwords_cache = {"mtime": None, "words": BADWORDS_DEFAULT}
+
+def load_badwords():
+    """config 파일의 "BADWORDS" 키를 읽어 반환한다.
+    파일이 수정되면(mtime 변경) 자동으로 다시 읽어 실시간 반영하고,
+    변경이 없으면 캐시를 그대로 쓴다. 읽기/파싱 실패 시 직전 값을 유지한다."""
+    try:
+        mtime = os.path.getmtime(CONFIG_PATH)
+        if mtime != _badwords_cache["mtime"]:
+            with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            words = data.get("BADWORDS", BADWORDS_DEFAULT)
+            if isinstance(words, list):
+                _badwords_cache["words"] = [str(w) for w in words if str(w)]
+                _badwords_cache["mtime"] = mtime  # 파싱 성공했을 때만 mtime 확정
+                print(f"[BADWORDS] 갱신: {len(_badwords_cache['words'])}개 단어 로드됨")
+            else:
+                # 리스트가 아니면(문자열/딕트/null 등) 기존값 유지하고 mtime은 확정하지 않음
+                # → 다음 호출에서 다시 시도하게 해서 잘못된 값이 캐시로 굳지 않도록 함
+                print(f"[BADWORDS] BADWORDS가 리스트가 아님(무시, 기존값 유지): {type(words).__name__}")
+    except Exception as e:
+        print(f"[BADWORDS] 로드 실패, 기존값 유지: {e}")
+    return _badwords_cache["words"]
+
 def message_contains_profanity(msg, badwords, max_gap=4):
     raw_text = (msg.text or msg.caption or "").lower()
     cleaned_text = re.sub(r'\s+', '', raw_text) 
@@ -210,7 +267,25 @@ async def spam_reply_handler(update: Update, context: CallbackContext):
 
     if not msg or not (msg.text or msg.caption):
         return
-    
+
+    # === 메시지 본문에 키릴 문자(러시아어)가 있으면 영구 강퇴 (unban 없음) ===
+    # 닉네임뿐 아니라 댓글 내용에 러시아어가 섞여 있어도 즉시 삭제 + 영구밴
+    if contains_cyrillic(msg.text or msg.caption or ""):
+        try:
+            await context.bot.delete_message(chat_id=chat_id, message_id=msg.message_id)
+            print(f"키릴 메시지 삭제: {user_id}")
+        except Exception as e:
+            print(f"키릴 메시지 삭제 실패: {e}")
+        try:
+            # 모든 공지채널 + 현재방에서 영구 ban (재구독 불가)
+            for notice_chat in NOTICE_CHAT_ID:
+                await context.bot.ban_chat_member(chat_id=notice_chat, user_id=int(user_id))
+            await context.bot.ban_chat_member(chat_id=chat_id, user_id=int(user_id))
+            print(f"🚫 키릴 메시지 영구 강퇴: {user_id}")
+        except Exception as e:
+            print(f"키릴 메시지 강퇴 실패: {e}")
+        return
+
     if not msg.reply_to_message and chat_id in NOTICE_CHAT_ID:
         return
     
@@ -221,13 +296,15 @@ async def spam_reply_handler(update: Update, context: CallbackContext):
     is_link_contains = True
     text = msg.text or msg.caption
     if not message_contains_link(msg):
-        # 링크는 없고 첫댓글 환영식
-        if is_first_comment:
-            user = msg.from_user
-            name = f"{user.first_name} {user.last_name or ''}".strip()
-            await msg.reply_text(f"{name} 첫 댓글 고맙다. 앞으로 분위기 잘 띄워라 🎉")
-            return
         is_link_contains = False
+        # 링크 없는 첫 댓글: 욕설/도배가 아닐 때만 환영하고 종료.
+        # 욕설/도배면 환영하지 않고 아래 삭제 블록으로 진행한다 (강퇴는 안 함, 삭제만).
+        if is_first_comment and not message_contains_profanity(msg, load_badwords(), BADWORDS_MAX_GAP) and not message_is_too_long(msg, 1000):
+            if not is_silent_chat(chat_id):
+                user = msg.from_user
+                name = f"{user.first_name} {user.last_name or ''}".strip()
+                await msg.reply_text(f"{name} 첫 댓글 고맙다. 앞으로 분위기 잘 띄워라 🎉")
+            return
     
     #print('text',text)
     #print('link cointained?',is_link_contains)
@@ -247,8 +324,9 @@ async def spam_reply_handler(update: Update, context: CallbackContext):
         print('처음 쓰는 유저가 아니라 냅둠')
 
     # --- 유저 강퇴/언밴 ---
-    # 첫음 글쓰는데 링크 있으면 무조건 강퇴, 다른 채널도 구독 불가
-    if is_first_comment:
+    # 첫 댓글 + 링크 있으면 무조건 강퇴, 다른 채널도 구독 불가
+    # (링크 없는 첫 댓글의 욕설/도배는 강퇴가 아니라 아래에서 '삭제'만 한다)
+    if is_first_comment and is_link_contains:
         try:
             for notice_chat in NOTICE_CHAT_ID:
                 await context.bot.ban_chat_member(chat_id=notice_chat, user_id=int(user_id))
@@ -259,16 +337,17 @@ async def spam_reply_handler(update: Update, context: CallbackContext):
         except Exception as e:
             print(f"유저 강퇴 실패: {e}")
 
-    #print(message_contains_profanity(msg, BADWORDS, BADWORDS_MAX_GAP))
+    #print(message_contains_profanity(msg, load_badwords(), BADWORDS_MAX_GAP))
 
-    if message_contains_profanity(msg, BADWORDS, BADWORDS_MAX_GAP):
+    if message_contains_profanity(msg, load_badwords(), BADWORDS_MAX_GAP):
         try:
             await context.bot.delete_message(chat_id=chat_id, message_id=msg.message_id)
             print(f"메시지 금지어 삭제: {user_id}")
-            user = msg.from_user
-            name = f"{user.first_name} {user.last_name or ''}".strip()
-            #await msg.reply_text(f"{name} 금지어 삭제")
-            await context.bot.send_message(chat_id=chat_id, text=f"{name} 금지어 삭제") 
+            if not is_silent_chat(chat_id):
+                user = msg.from_user
+                name = f"{user.first_name} {user.last_name or ''}".strip()
+                #await msg.reply_text(f"{name} 금지어 삭제")
+                await context.bot.send_message(chat_id=chat_id, text=f"{name} 금지어 삭제")
         except Exception as e:
             print(f"메시지 삭제 실패: {e}")
     
@@ -276,10 +355,11 @@ async def spam_reply_handler(update: Update, context: CallbackContext):
         try:
             await context.bot.delete_message(chat_id=chat_id, message_id=msg.message_id)
             print(f"메시지 도배 삭제: {user_id}")
-            user = msg.from_user
-            name = f"{user.first_name} {user.last_name or ''}".strip()
-            #await msg.reply_text(f"{name} 장문 도배 삭제")
-            await context.bot.send_message(chat_id=chat_id, text=f"{name} 장문 도배 삭제") 
+            if not is_silent_chat(chat_id):
+                user = msg.from_user
+                name = f"{user.first_name} {user.last_name or ''}".strip()
+                #await msg.reply_text(f"{name} 장문 도배 삭제")
+                await context.bot.send_message(chat_id=chat_id, text=f"{name} 장문 도배 삭제")
         except Exception as e:
             print(f"메시지 삭제 실패: {e}")
 

@@ -2,5 +2,7 @@
     "TOKEN": "bot_token_here",
     "ADMIN_ID": 123456789,
     "NOTICE_CHAT_ID":[-123456789],
-    "KICK_EXCEPTIONS":[-345654]
+    "KICK_EXCEPTIONS":[-345654],
+    "SILENT_CHAT_ID":[-345655],
+    "BADWORDS":["김대중","운지","노짱","부엉이","노무","이기","무현","섹스"]
 }
