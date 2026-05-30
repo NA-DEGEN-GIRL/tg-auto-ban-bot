@@ -76,7 +76,7 @@ group_writers = load_writers()
 async def auth_command(update: Update, context: CallbackContext):
     global authenticated
 
-    if update.effective_user.id != ADMIN_ID:
+    if update.effective_user is None or update.effective_user.id != ADMIN_ID:
         await update.message.reply_text("❌ You are not allowed to authenticate this bot.")
         return
 
@@ -244,12 +244,17 @@ def message_contains_profanity(msg, badwords, max_gap=4):
 
 
 async def spam_reply_handler(update: Update, context: CallbackContext):
-    # special case by auto forward by system
+    # 채널 명의 글/익명 관리자/채널 자동전달 등 '사용자 없는' 메시지는 무시
+    # (update.message나 from_user가 None일 수 있어 .id 접근 전에 None을 먼저 가드 —
+    #  effective_user가 None인 경우 .id에서 크래시 나던 버그 수정)
     msg = update.message
-    if update.effective_user.id == 777000 or msg.from_user is None:
+    if msg is None or msg.from_user is None:
+        return
+    # 텔레그램 시스템(자동전달) 계정 무시
+    if msg.from_user.id == 777000:
         return
     
-    if not authenticated or stopped or NOTICE_CHAT_ID is None or update.effective_user.id == ADMIN_ID:
+    if not authenticated or stopped or NOTICE_CHAT_ID is None or msg.from_user.id == ADMIN_ID:
         return
 
     # --- 첫 댓글을 쓰는 유저인지 판별 ---
@@ -367,7 +372,7 @@ async def spam_reply_handler(update: Update, context: CallbackContext):
 async def stop_command(update: Update, context: CallbackContext):
     if not authenticated:
         return
-    if update.effective_user.id != ADMIN_ID:
+    if update.effective_user is None or update.effective_user.id != ADMIN_ID:
         return
 
     global stopped
@@ -377,7 +382,7 @@ async def stop_command(update: Update, context: CallbackContext):
 async def restart_command(update: Update, context: CallbackContext):
     if not authenticated:
         return
-    if update.effective_user.id != ADMIN_ID:
+    if update.effective_user is None or update.effective_user.id != ADMIN_ID:
         return
 
     global stopped
