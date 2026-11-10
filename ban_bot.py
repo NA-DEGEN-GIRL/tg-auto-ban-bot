@@ -1,5 +1,5 @@
-from telegram import Update
-from telegram.ext import Application, MessageHandler, CommandHandler, filters, CallbackContext
+from telegram import Update, ChatMember
+from telegram.ext import Application, MessageHandler, CommandHandler, ChatMemberHandler, filters, CallbackContext
 import json
 import asyncio
 import re
@@ -14,6 +14,10 @@ auto_kick = True
 # 아래 값은 config에 "BADWORDS" 키가 없을 때만 쓰는 기본값(fallback)입니다.
 BADWORDS_DEFAULT = ["김대중","운지","노짱","부엉이","노무","이기","무현","섹스"]
 BADWORDS_MAX_GAP = 10
+CYRILLIC_PATTERN = re.compile(r'[\u0400-\u04FF\u0500-\u052F\u1C80-\u1C8F\u2DE0-\u2DFF\uA640-\uA69F]')
+# 한자(CJK 통합 한자 + 확장A + 호환 한자). 한글/가나가 같이 있으면 한국인·일본인 이름으로 보고 제외 (contains_chinese 참고)
+HAN_PATTERN = re.compile(r'[\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF]')
+HANGUL_KANA_PATTERN = re.compile(r'[\uAC00-\uD7A3\u1100-\u11FF\u3130-\u318F\u3040-\u30FF]')
 
 # --- 설정/로드 ---
 CONFIG_PATH = "config_test.json" if test_mode else "config.json"
@@ -27,6 +31,9 @@ KICK_EXCEPTIONS = config.get("KICK_EXCEPTIONS", []) or []
 # SILENT_CHAT_ID: 이 목록에 있는 그룹에서는 봇이 사용자에게 보내는 안내 메시지를 전부 생략합니다.
 # (삭제/강퇴 같은 조치 자체는 그대로 수행하고, 안내는 안 보낸 채 로그(print)만 남김)
 SILENT_CHAT_ID = config.get("SILENT_CHAT_ID", []) or []
+# WATCH_CHANNEL_IDS: 이 채널에 새로 구독하는 사람을 실시간 검사해서 스캐머로 보이면 영구 차단합니다.
+# (봇이 채널 관리자 + 사용자 차단 권한 필요. 조건은 channel_subscriber_handler 참고)
+WATCH_CHANNEL_IDS = config.get("WATCH_CHANNEL_IDS", []) or []
 
 def is_silent_chat(chat_id):
     """SILENT_CHAT_ID에 속한 채팅이면 True. 이런 방에선 사용자 안내 메시지를 보내지 않고 로그만 남긴다."""
@@ -72,6 +79,12 @@ def save_writers():
 # 최초 로드
 group_writers = load_writers()
 
+def get_user_display_name(user):
+    return f"{user.first_name or ''} {user.last_name or ''}".strip()
+
+def user_profile_contains_cyrillic(user) -> bool:
+    return contains_cyrillic(get_user_display_name(user)) or contains_cyrillic(user.username or "")
+
 # ========== 관리자 인증 ==========
 async def auth_command(update: Update, context: CallbackContext):
     global authenticated
@@ -101,11 +114,11 @@ async def kick_user(update: Update, context: CallbackContext):
                 continue
             
             # === 영구밴 조건들은 KICK_EXCEPTIONS와 무관하게 항상 적용됨 (예외방에서도 영구밴) ===
-            display_name = f"{user.first_name or ''} {user.last_name or ''}".strip()
+            display_name = get_user_display_name(user)
             username = user.username or ""
 
-            # 키릴 문자(러시아어) 닉네임 → 영구 차단 (unban 없음)
-            if contains_cyrillic(display_name) or contains_cyrillic(username):
+            # 입장 이벤트만으로도 프로필 닉네임/username의 키릴 문자를 판독해 영구 차단한다.
+            if user_profile_contains_cyrillic(user):
                 try:
                     # unban 없이 영구 차단
                     await context.bot.ban_chat_member(chat_id=update.message.chat_id, user_id=user.id)
@@ -145,6 +158,50 @@ async def kick_user(update: Update, context: CallbackContext):
                     # 안내 메시지 실패가 같은 배치의 다른 유저 처리를 막지 않도록 (강퇴는 이미 성공)
                     print(f"강퇴 안내 메시지 실패: {e}")
 
+# ========== 채널 새 구독자 감시 & 영구 차단 ==========
+def scam_subscriber_reason(user):
+    """스캐머로 보이면 사유 문자열, 아니면 None"""
+    display_name = get_user_display_name(user)
+    if user_profile_contains_cyrillic(user):
+        return "러시아어 닉네임"
+    if contains_chinese(display_name):
+        return "중국어 닉네임"
+    if not user.username:
+        return "username 없음"
+    return None
+
+async def channel_subscriber_handler(update: Update, context: CallbackContext):
+    # chat_member 업데이트는 run_polling(allowed_updates=...)에 포함해야만 들어온다
+    if not authenticated or stopped:
+        return
+
+    cm = update.chat_member
+    if cm is None or cm.chat.id not in WATCH_CHANNEL_IDS:
+        return
+
+    # 새 구독(나가 있던/차단 상태 → 멤버)만 처리
+    was_out = cm.old_chat_member.status in (ChatMember.LEFT, ChatMember.BANNED)
+    is_in = cm.new_chat_member.status in (ChatMember.MEMBER, ChatMember.RESTRICTED)
+    if not (was_out and is_in):
+        return
+
+    user = cm.new_chat_member.user
+    if user.is_bot:
+        return
+
+    reason = scam_subscriber_reason(user)
+    display_name = get_user_display_name(user)
+    if reason is None:
+        print(f"채널 구독 통과: {display_name} (@{user.username}) id={user.id}")
+        return
+
+    try:
+        # unban 없이 영구 차단 (재구독 불가)
+        await context.bot.ban_chat_member(chat_id=cm.chat.id, user_id=user.id)
+        print(f"🚫 채널 구독자 영구 차단({reason}): {display_name} (@{user.username or ''}) id={user.id}")
+    except Exception as e:
+        print(f"채널 구독자 차단 실패({reason}) id={user.id}: {e}")
+
 # ========== 스팸 링크 댓글 감지 & 유저 강퇴 ==========
 def is_reply_to_notice(message):
     ref_msg = getattr(message, "reply_to_message", None)
@@ -163,8 +220,13 @@ def contains_cyrillic(text: str) -> bool:
     """키릴 문자(러시아어 등) 포함 여부 확인"""
     if not text:
         return False
-    cyrillic_pattern = re.compile(r'[\u0400-\u04FF]')
-    return bool(cyrillic_pattern.search(text))
+    return bool(CYRILLIC_PATTERN.search(text))
+
+def contains_chinese(text: str) -> bool:
+    """한자가 있고 한글/가나는 없으면 중국어로 판단 (한자 섞인 한국/일본 이름 오탐 방지)"""
+    if not text:
+        return False
+    return bool(HAN_PATTERN.search(text)) and not HANGUL_KANA_PATTERN.search(text)
 
 def message_contains_link(msg):
     # 텍스트 내 http, https 링크
@@ -411,11 +473,13 @@ def main():
     if auto_kick:
         app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, kick_user))
     app.add_handler(MessageHandler(filters.ALL, spam_reply_handler))  # ← spam reply 감지
+    app.add_handler(ChatMemberHandler(channel_subscriber_handler, ChatMemberHandler.CHAT_MEMBER))  # ← 채널 새 구독자 감시
 
     print("🤖 봇이 실행 중입니다...")
     if not authenticated:
         print("[관리자 인증을 받을 때까지 대기합니다. 텔레그램에서 /auth (ADMIN_ID로) 명령을 보내세요.]")
-    app.run_polling()
+    # chat_member는 기본으로 안 오므로 명시적으로 전부 받도록 지정 (채널 새 구독자 감시용)
+    app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == "__main__":
     main()
