@@ -5,6 +5,10 @@ import asyncio
 import re
 import os
 import unicodedata
+import time
+from datetime import datetime, timezone
+
+import scam_score
 
 test_mode = False
 
@@ -170,6 +174,59 @@ def scam_subscriber_reason(user):
         return "username 없음"
     return None
 
+# --- 스캐머 의심 점수 (scam_score.py). config의 "SCAM_SCORE" 키를 BADWORDS처럼 실시간 반영 ---
+SUBSCRIBER_LOG_PATH = "subscriber_log.jsonl"  # 새 구독자 전원 기록 (조치 결과 + 점수/근거)
+_scam_cfg_cache = {"mtime": None, "cfg": dict(scam_score.DEFAULT_CONFIG)}
+
+def load_scam_score_config():
+    """config의 "SCAM_SCORE"(dict)를 기본값 위에 덮어써서 반환. 실패하면 직전 값 유지"""
+    try:
+        mtime = os.path.getmtime(CONFIG_PATH)
+        if mtime != _scam_cfg_cache["mtime"]:
+            with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+                override = json.load(f).get("SCAM_SCORE", {})
+            if isinstance(override, dict):
+                _scam_cfg_cache["cfg"] = {**scam_score.DEFAULT_CONFIG, **override}
+                _scam_cfg_cache["mtime"] = mtime
+                print(f"[SCAM_SCORE] 갱신: mode={_scam_cfg_cache['cfg']['mode']} threshold={_scam_cfg_cache['cfg']['threshold']}")
+            else:
+                print(f"[SCAM_SCORE] SCAM_SCORE가 dict가 아님(무시, 기존값 유지): {type(override).__name__}")
+    except Exception as e:
+        print(f"[SCAM_SCORE] 로드 실패, 기존값 유지: {e}")
+    return _scam_cfg_cache["cfg"]
+
+_channel_info_cache = {}  # chat_id -> (조회시각, 채널명, [(id, 이름, username), ...])
+CHANNEL_INFO_TTL = 600
+
+async def get_channel_info(bot, chat_id):
+    """사칭 판별용 채널명 + 관리자 목록 (10분 캐시)"""
+    cached = _channel_info_cache.get(chat_id)
+    if cached and time.time() - cached[0] < CHANNEL_INFO_TTL:
+        return cached[1], cached[2]
+    try:
+        chat = await bot.get_chat(chat_id)
+        admins = [(a.user.id, get_user_display_name(a.user), a.user.username or "")
+                  for a in await bot.get_chat_administrators(chat_id) if not a.user.is_bot]
+        _channel_info_cache[chat_id] = (time.time(), chat.title or "", admins)
+        return chat.title or "", admins
+    except Exception as e:
+        print(f"[SCAM_SCORE] 채널 정보 조회 실패: {e}")
+        return (cached[1], cached[2]) if cached else ("", [])
+
+async def user_has_photo(bot, user_id):
+    """프로필 사진 유무. 조회 실패하면 None (점수에서 제외)"""
+    try:
+        return (await bot.get_user_profile_photos(user_id, limit=1)).total_count > 0
+    except Exception:
+        return None
+
+def write_subscriber_log(entry):
+    try:
+        with open(SUBSCRIBER_LOG_PATH, "a", encoding="utf-8") as f:
+            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    except Exception as e:
+        print(f"구독자 로그 기록 실패: {e}")
+
 async def channel_subscriber_handler(update: Update, context: CallbackContext):
     # chat_member 업데이트는 run_polling(allowed_updates=...)에 포함해야만 들어온다
     if not authenticated or stopped:
@@ -189,18 +246,46 @@ async def channel_subscriber_handler(update: Update, context: CallbackContext):
     if user.is_bot:
         return
 
-    reason = scam_subscriber_reason(user)
     display_name = get_user_display_name(user)
-    if reason is None:
-        print(f"채널 구독 통과: {display_name} (@{user.username}) id={user.id}")
-        return
+    reason = scam_subscriber_reason(user)
 
-    try:
-        # unban 없이 영구 차단 (재구독 불가)
-        await context.bot.ban_chat_member(chat_id=cm.chat.id, user_id=user.id)
-        print(f"🚫 채널 구독자 영구 차단({reason}): {display_name} (@{user.username or ''}) id={user.id}")
-    except Exception as e:
-        print(f"채널 구독자 차단 실패({reason}) id={user.id}: {e}")
+    # 의심 점수는 기존 규칙 결과와 상관없이 전원 계산해서 기록 (기준 점수 튜닝용 데이터)
+    cfg = load_scam_score_config()
+    title, admins = await get_channel_info(context.bot, cm.chat.id)
+    has_photo = await user_has_photo(context.bot, user.id)
+    score, score_reasons = scam_score.score_user(display_name, user.username or "", has_photo, title, admins, cfg)
+    over_threshold = score >= cfg["threshold"]
+
+    # mode가 "ban"일 때만 점수로 차단. 기본 "log"는 기록만 한다
+    if reason is None and over_threshold and cfg["mode"] == "ban":
+        reason = f"의심점수 {score}"
+
+    action = "통과"
+    if reason is not None:
+        try:
+            # unban 없이 영구 차단 (재구독 불가)
+            await context.bot.ban_chat_member(chat_id=cm.chat.id, user_id=user.id)
+            action = "영구차단"
+        except Exception as e:
+            action = f"차단실패: {e}"
+
+    print(f"{'🚫' if action == '영구차단' else '👤'} 채널 구독 [{action}{f'/{reason}' if reason else ''}] "
+          f"{display_name} (@{user.username or ''}) id={user.id} | 점수 {score}"
+          f"{' (기준 이상)' if over_threshold else ''} {score_reasons}")
+    write_subscriber_log({
+        "time": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "chat_id": cm.chat.id,
+        "user_id": user.id,
+        "name": display_name,
+        "username": user.username,
+        "has_photo": has_photo,
+        "action": action,
+        "reason": reason,
+        "score": score,
+        "score_reasons": score_reasons,
+        "over_threshold": over_threshold,
+        "score_mode": cfg["mode"],
+    })
 
 # ========== 스팸 링크 댓글 감지 & 유저 강퇴 ==========
 def is_reply_to_notice(message):

@@ -19,3 +19,4 @@ function_test.py
 .python-version
 *.session*
 cyrillic_users.json
+subscriber_log.jsonl
